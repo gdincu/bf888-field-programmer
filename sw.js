@@ -1,6 +1,6 @@
 /* Offline-first service worker for BF-888 PWA. Bump VERSION to force update. */
-const VERSION = 'bf888-v1';
-const ASSETS = ['./index.html', './app.js', './manifest.webmanifest', './icon.svg'];
+const VERSION = 'bf888-v2';
+const ASSETS = ['./index.html', './app.js', './pl2303.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));

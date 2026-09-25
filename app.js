@@ -189,9 +189,8 @@ async function openPort() {
     if (e && (e.name === 'NotFoundError' || e.name === 'AbortError')) {
       let msg = 'no port picked. ';
       if (isAndroid) {
-        msg += 'On Android: (1) always press Cancel on the system "Choose an app" popup — the PWA never appears there; picking another app blocks Chrome. '
-          + '(2) the Chrome serial list is Bluetooth-only on most phones; USB UART cables (CH340/PL2303/CP2102/FTDI clones common with Baofeng cables) usually do NOT appear. '
-          + 'Use Diagnose USB + chrome://device-log to confirm the chip, then see README fallback (native serial app or ESP32 bridge).';
+        msg += 'On Android the Chrome serial list is usually Bluetooth-only, so a USB cable (067B:2303 PL2303 etc) will NOT appear here even though Diagnose USB sees it. '
+          + 'Use "Connect USB (PL2303)" instead. Always press Cancel on the system "Choose an app" popup first.';
       } else {
         msg += 'If the list is empty, the OS has not exposed a COM port (driver/cable). Check Device Manager / dmesg and use a genuine FTDI/CP2102 cable if needed.';
       }
@@ -202,16 +201,39 @@ async function openPort() {
   await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
   reader = port.readable.getReader();
   writer = port.writable.getWriter();
-  log('port open @9600 8N1');
+  log('port open @9600 8N1 (Web Serial)');
+}
+let usbPort = null; // Pl2303WebUsb instance (WebUSB path, Android)
+async function openUsbPort() {
+  if (!hasUsb) throw new Error('WebUSB not available. Use Chrome/Edge over HTTPS or localhost.');
+  if (typeof Pl2303WebUsb === 'undefined') throw new Error('PL2303 driver missing (pl2303.js not loaded).');
+  await closePort();
+  const filters = [{ vendorId: 0x067B }, { vendorId: 0x0403 }, { vendorId: 0x10C4 }, { vendorId: 0x1A86 }];
+  let device;
+  try {
+    device = await navigator.usb.requestDevice({ filters });
+  } catch (e) {
+    if (e && (e.name === 'NotFoundError' || e.name === 'AbortError'))
+      throw new Error('no USB device picked. Plug the cable (radio off), press Cancel on the system popup, then retry. Check chrome://device-log.');
+    throw e;
+  }
+  log(`USB opening ${device.productName || '?'} ${fmtVidPid(device.vendorId, device.productId)}...`);
+  usbPort = await Pl2303WebUsb.connect(device, 9600, log);
+  log('USB port open @9600 8N1 (WebUSB PL2303)');
 }
 async function closePort() {
   try { reader && reader.releaseLock(); } catch {}
   try { writer && writer.releaseLock(); } catch {}
   try { port && await port.close(); } catch {}
   reader = writer = port = null;
+  if (usbPort) { try { await usbPort.close(); } catch {} usbPort = null; }
 }
-async function writeBytes(u8) { await writer.write(u8); }
+async function writeBytes(u8) {
+  if (usbPort) { await usbPort.writeBytes(u8); return; }
+  await writer.write(u8);
+}
 async function readExactly(n, timeoutMs = 1500) {
+  if (usbPort) return usbPort.readExactly(n, timeoutMs);
   const out = new Uint8Array(n); let got = 0;
   const t0 = Date.now();
   while (got < n) {
@@ -264,7 +286,7 @@ async function writeBlock(addr, bytes8) {
 }
 
 async function doRead() {
-  if (!port) await openPort();
+  if (!port && !usbPort) await openPort();
   try {
     await enterProgMode();
     const buf = new Uint8Array(MEMSIZE);
@@ -282,7 +304,7 @@ async function doRead() {
 
 async function doWrite() {
   if (!image) { log('nothing to write'); return; }
-  if (!port) await openPort();
+  if (!port && !usbPort) await openPort();
   try {
     await enterProgMode();
     let n = 0; const total = RANGES.reduce((a, [s, e]) => a + (e - s) / BLOCK, 0);
@@ -447,7 +469,7 @@ async function diagnoseUsb() {
       });
     });
     if (infoEl) infoEl.textContent = fmtVidPid(dev.vendorId, dev.productId);
-    log('NOTE: this only proves Android gave Chrome raw USB visibility. Talking COM-port serial to CH340/PL2303 still needs a JS USB-serial driver (not bundled) or native USB-serial support (Chrome 148+/limited devices). If Connect cable list stays empty, use README fallback: native serial app or ESP32 bridge, or a genuine FTDI/CP2102 cable.');
+    log('If this is 067B:2303 use "Connect USB (PL2303)" to read/write. Other chips (CH340 etc) are probe-only in this build.');
   } catch (e) {
     if (e && (e.name === 'NotFoundError' || e.name === 'AbortError')) {
       log('USB chooser: nothing picked. If your cable was plugged in but absent here, Android/Chrome cannot claim that chip (typical for PL2303 clones), or another app already claimed it, or OTG/power is wrong. Check chrome://device-log.');
@@ -460,6 +482,8 @@ async function diagnoseUsb() {
 
 // ---------- wiring ----------
 $('btnConnect').onclick = async () => { try { await openPort(); log('connected. Now Read or Write.'); } catch (e) { log('connect failed: ' + e.message); } };
+const _btnUsbConn = $('btnUsbConnect');
+if (_btnUsbConn) _btnUsbConn.onclick = async () => { try { await openUsbPort(); log('USB connected. Now Read or Write.'); } catch (e) { log('USB connect failed: ' + e.message); } };
 const _btnUsb = $('btnUsb'); if (_btnUsb) _btnUsb.onclick = () => { diagnoseUsb(); };
 $('btnRead').onclick = async () => {
   $('btnRead').disabled = true;

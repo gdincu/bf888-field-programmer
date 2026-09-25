@@ -58,8 +58,9 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
       <div class="progress" style="flex:1"><div id="bar"></div></div>
       <span id="status" class="hint">idle</span>
     </div>
-    <p class="hint">Laptop (Chrome/Edge desktop): plug in, Connect cable, pick COM port.<br>Android phone: when you plug in, Android shows a system "Choose an app for the USB device" popup — a PWA can never appear there (Android only lists native apps). Always press Cancel, then tap Connect cable below. If the Chrome serial list is then empty, this phone/Chrome has no USB-serial driver for your cable chip — tap Diagnose USB and see README.</p>
+    <p class="hint">Laptop (Chrome/Edge desktop): plug in, Connect cable, pick COM port.<br>Android phone (PL2303 cable 067B:2303): plug in (radio off), press Cancel on the system "Choose an app" popup — the PWA never appears there — then tap Connect USB (PL2303), then Read radio. If that fails, tap Diagnose USB and see README.</p>
     <div class="row">
+      <button id="btnUsbConnect" class="small">Connect USB (PL2303)</button>
       <button id="btnUsb" class="small">Diagnose USB</button>
       <span id="usbinfo" class="hint"></span>
     </div>
@@ -94,6 +95,7 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
     <div id="log"></div>
   </div>
 </main>
+<script src="pl2303.js"></script>
 <script src="app.js"></script>
 <script>
 if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
