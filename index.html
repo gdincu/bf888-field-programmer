@@ -58,7 +58,11 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
       <div class="progress" style="flex:1"><div id="bar"></div></div>
       <span id="status" class="hint">idle</span>
     </div>
-    <p class="hint">Android + Chrome/Edge + USB-OTG. Same cable as CHIRP. Baud 9600. If no serial prompt appears, Chrome can't claim your cable chip (common with CH340/PL2303 clones) — see README fallback (native serial app or ESP32 bridge).</p>
+    <p class="hint">Laptop (Chrome/Edge desktop): plug in, Connect cable, pick COM port.<br>Android phone: when you plug in, Android shows a system "Choose an app for the USB device" popup — a PWA can never appear there (Android only lists native apps). Always press Cancel, then tap Connect cable below. If the Chrome serial list is then empty, this phone/Chrome has no USB-serial driver for your cable chip — tap Diagnose USB and see README.</p>
+    <div class="row">
+      <button id="btnUsb" class="small">Diagnose USB</button>
+      <span id="usbinfo" class="hint"></span>
+    </div>
     <div class="row">
       <button id="btnDemo" class="small">Load demo data</button>
       <button id="btnExport" class="small">Export JSON</button>

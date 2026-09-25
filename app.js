@@ -148,12 +148,57 @@ function writeSettings(st) {
 // ---------- Web Serial transport ----------
 let port = null, reader = null, writer = null;
 const hasSerial = 'serial' in navigator;
+const hasUsb = 'usb' in navigator;
+const isAndroid = /Android/i.test(navigator.userAgent || '');
 $('compat').textContent = hasSerial ? 'Web Serial OK' : 'no Web Serial';
 $('compat').className = 'badge ' + (hasSerial ? 'ok' : 'err');
 if (!hasSerial) log('WARNING: navigator.serial missing. Use Chrome/Edge (desktop or Android), HTTPS or localhost.');
+if (hasSerial && isAndroid) {
+  log('NOTE: on most Android phones navigator.serial lists Bluetooth only, not USB UART bridges (CH340/PL2303/CP2102/FTDI). Native USB serial needs Chrome 148+ plus the new Android Serial API (limited devices, 2026+). If the Chrome list is empty, use Diagnose USB below.');
+}
+if (hasSerial) {
+  // Show already-paired ports; helps distinguish "empty because no permission yet" vs "empty because incompatible".
+  navigator.serial.getPorts().then((ports) => {
+    if (ports && ports.length) {
+      log(`paired serial ports: ${ports.length}`);
+      ports.forEach((p, i) => { try { log(` paired[${i}]: ${JSON.stringify(p.getInfo())}`); } catch {} });
+    }
+  }).catch(() => {});
+  navigator.serial.addEventListener('connect', (e) => {
+    try { log('serial connect: ' + JSON.stringify(e.target.getInfo())); } catch { log('serial connect'); }
+  });
+  navigator.serial.addEventListener('disconnect', (e) => {
+    log('serial disconnect');
+    if (port && e.target === port) closePort();
+  });
+}
+if (hasUsb && isAndroid) {
+  navigator.usb.getDevices().then((devs) => {
+    if (devs && devs.length) log(`WebUSB already-paired devices: ${devs.length} (tap Diagnose USB for VID:PID)`);
+  }).catch(() => {});
+  navigator.usb.addEventListener('connect', (e) => log('USB device plugged: ' + (e.device.productName || 'unknown')));
+  navigator.usb.addEventListener('disconnect', (e) => log('USB device unplugged'));
+}
 
 async function openPort() {
-  port = await navigator.serial.requestPort({});
+  if (!hasSerial) throw new Error('Web Serial not available. Use Chrome/Edge over HTTPS or localhost.');
+  try {
+    port = await navigator.serial.requestPort({});
+  } catch (e) {
+    // User cancelled, or no compatible device found.
+    if (e && (e.name === 'NotFoundError' || e.name === 'AbortError')) {
+      let msg = 'no port picked. ';
+      if (isAndroid) {
+        msg += 'On Android: (1) always press Cancel on the system "Choose an app" popup — the PWA never appears there; picking another app blocks Chrome. '
+          + '(2) the Chrome serial list is Bluetooth-only on most phones; USB UART cables (CH340/PL2303/CP2102/FTDI clones common with Baofeng cables) usually do NOT appear. '
+          + 'Use Diagnose USB + chrome://device-log to confirm the chip, then see README fallback (native serial app or ESP32 bridge).';
+      } else {
+        msg += 'If the list is empty, the OS has not exposed a COM port (driver/cable). Check Device Manager / dmesg and use a genuine FTDI/CP2102 cable if needed.';
+      }
+      throw new Error(msg);
+    }
+    throw e;
+  }
   await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
   reader = port.readable.getReader();
   writer = port.writable.getWriter();
@@ -364,8 +409,58 @@ function toJSON() {
   return JSON.stringify({ radio: 'Baofeng BF-888', channels: parseChannels(), settings: parseSettings(), rawHex: [...image].map(b => b.toString(16).padStart(2, '0')).join('') }, null, 1);
 }
 
+// ---------- Android USB diagnostics (WebUSB is read-only probe; serial I/O still uses Web Serial) ----------
+const KNOWN_UUART_VIDS = [
+  { usbVendorId: 0x0403 }, // FTDI
+  { usbVendorId: 0x067B }, // Prolific PL2303 (many Baofeng cables; clones common)
+  { usbVendorId: 0x10C4 }, // Silicon Labs CP210x
+  { usbVendorId: 0x1A86 }, // WCH CH340/CH341
+  { usbVendorId: 0x0483 }, // ST CDC
+  { usbVendorId: 0x2341 }, // Arduino
+];
+const VID_NAME = { '0403': 'FTDI?', '067b': 'Prolific PL2303?', '10c4': 'SiLabs CP210x?', '1a86': 'WCH CH340?', '0483': 'ST CDC?', '2341': 'Arduino?' };
+function fmtVidPid(vid, pid) {
+  const v = (vid || 0).toString(16).padStart(4, '0'), p = (pid || 0).toString(16).padStart(4, '0');
+  return `${v}:${p} (${VID_NAME[v.toLowerCase()] || 'unknown chip'})`;
+}
+async function diagnoseUsb() {
+  const infoEl = $('usbinfo');
+  if (!hasUsb) {
+    const m = 'WebUSB not available in this browser. Use Chrome/Edge, HTTPS or localhost.';
+    log(m); if (infoEl) infoEl.textContent = m;
+    return;
+  }
+  try {
+    const paired = await navigator.usb.getDevices();
+    log(`WebUSB paired devices: ${paired.length}`);
+    paired.forEach((d) => log(` - ${d.productName || 'unknown'} ${fmtVidPid(d.vendorId, d.productId)}`));
+    if (infoEl && paired.length) infoEl.textContent = paired.map((d) => fmtVidPid(d.vendorId, d.productId)).join(', ');
+    // requestDevice needs a user gesture (this button click qualifies) and at least one filter.
+    log('opening USB chooser for known UART VIDs (FTDI/PL2303/CP210x/CH340)... Cancel = none visible to Chrome.');
+    const dev = await navigator.usb.requestDevice({ filters: KNOWN_UUART_VIDS });
+    log(`USB picked: ${dev.productName || '?'} by ${dev.manufacturerName || '?'} ${fmtVidPid(dev.vendorId, dev.productId)}`);
+    log(` class=${dev.deviceClass} subclass=${dev.deviceSubclass} proto=${dev.deviceProtocol} configs=${dev.configurations?.length || 0}`);
+    (dev.configurations || []).forEach((c, i) => {
+      (c.interfaces || []).forEach((itf) => {
+        const alts = (itf.alternates || []).map((a) => `cls=${a.interfaceClass}/${a.interfaceSubclass}/${a.interfaceProtocol}`).join('|');
+        log(`  cfg${i} if#${itf.interfaceNumber} claimed=${itf.claimed} ${alts}`);
+      });
+    });
+    if (infoEl) infoEl.textContent = fmtVidPid(dev.vendorId, dev.productId);
+    log('NOTE: this only proves Android gave Chrome raw USB visibility. Talking COM-port serial to CH340/PL2303 still needs a JS USB-serial driver (not bundled) or native USB-serial support (Chrome 148+/limited devices). If Connect cable list stays empty, use README fallback: native serial app or ESP32 bridge, or a genuine FTDI/CP2102 cable.');
+  } catch (e) {
+    if (e && (e.name === 'NotFoundError' || e.name === 'AbortError')) {
+      log('USB chooser: nothing picked. If your cable was plugged in but absent here, Android/Chrome cannot claim that chip (typical for PL2303 clones), or another app already claimed it, or OTG/power is wrong. Check chrome://device-log.');
+      if (infoEl) infoEl.textContent = 'no USB device picked/visible';
+    } else {
+      log('USB diagnose failed: ' + (e && e.message || e));
+    }
+  }
+}
+
 // ---------- wiring ----------
 $('btnConnect').onclick = async () => { try { await openPort(); log('connected. Now Read or Write.'); } catch (e) { log('connect failed: ' + e.message); } };
+const _btnUsb = $('btnUsb'); if (_btnUsb) _btnUsb.onclick = () => { diagnoseUsb(); };
 $('btnRead').onclick = async () => {
   $('btnRead').disabled = true;
   try { collectFormToImageLight(); await doRead(); } catch (e) { log('READ FAILED: ' + e.message); await closePort(); }
