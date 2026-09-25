@@ -248,32 +248,13 @@ async function readExactly(n, timeoutMs = 1500) {
 const hex = (u8) => [...u8].map(b => b.toString(16).padStart(2, '0')).join(' ');
 
 let lastExitAt = 0; // ms timestamp of last exitProgMode; enforces re-entry settle
-async function flushSerial(maxMs = 250) {
-  // Drain stale Web Serial RX bytes (e.g. leftover 0x06 ACK from a prior
-  // session) with short-deadline polls. Quiet buffer => return early.
-  if (!reader) return;
-  const t0 = Date.now();
-  while (Date.now() - t0 < maxMs) {
-    let timer;
-    try {
-      const timeout = new Promise(r => { timer = setTimeout(() => r(null), 80); });
-      const res = await Promise.race([reader.read(), timeout]);
-      clearTimeout(timer);
-      if (!res) return;
-      const { value, done } = res;
-      if (done) return;
-      if (!value || !value.length) return;
-      // else: discarded stale byte(s), keep draining
-    } catch { try { clearTimeout(timer); } catch {} return; }
-  }
-}
-async function flushInput() {
-  if (usbPort) usbPort.flush(); // drop stale PL2303 pump bytes from init
-  if (reader) await flushSerial();
-}
+// NOTE: no RX drain on Web Serial — a timed-out reader.read() stays queued on
+// the stream and would steal the radio's next ACK byte. Stale bytes are benign:
+// the ident check is includes('P3107'), and the settle gap below stops them
+// occurring (they were late ACKs to a too-early PROGRAM attempt).
 
 async function enterProgModeOnce() {
-  await flushInput();
+  if (usbPort) usbPort.flush(); // drop stale PL2303 pump bytes from init
   await writeBytes(new Uint8Array([0x02]));
   await sleep(150); // BF-888 needs ~100ms (h777.py); 150ms is the value Read worked with — keep
   await writeBytes(new TextEncoder().encode('PROGRAM'));
@@ -300,7 +281,7 @@ async function enterProgMode() {
     try {
       if (attempt > 1) {
         log(`prog mode retry ${attempt}/3...`);
-        await flushInput();
+        if (usbPort) usbPort.flush();
         await sleep(300);
       }
       await enterProgModeOnce();
