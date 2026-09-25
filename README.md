@@ -16,3 +16,7 @@ Read and write Baofeng BF-888 channels and settings over USB serial
 
 - Always **Read first**, backup JSON, then Write
 - BF-888 is UHF 400–490 MHz, 16ch, no keypad — a bad write just needs a re-write
+
+## Credits
+
+- Android USB support uses a browser port of the Prolific PL2303 user-space driver from [tidepool-org/pl2303](https://github.com/tidepool-org/pl2303) (MIT, fork of andreasgal/usbserial). See `pl2303.js`
