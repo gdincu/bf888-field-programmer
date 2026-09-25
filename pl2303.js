@@ -16,8 +16,15 @@
     return r.data.getUint8(0);
   }
   async function vendorWrite(device, value, index) {
+    // NOTE: tidepool/Linux uses requestType 'class' here, not 'vendor' — required for init to stick.
     await device.controlTransferOut({
-      requestType: 'vendor', recipient: 'device', request: 0x01, value, index,
+      requestType: 'class', recipient: 'device', request: 0x01, value, index,
+    });
+  }
+  async function setControlLines(device, ifNum, dtr, rts) {
+    const v = (dtr ? 1 : 0) | (rts ? 2 : 0);
+    await device.controlTransferOut({
+      requestType: 'class', recipient: 'interface', request: 0x22, value: v, index: ifNum,
     });
   }
   async function setBaudrate(device, ifNum, baud) {
@@ -86,6 +93,7 @@
       await vendorWrite(device, 1, 0);
       await vendorWrite(device, 2, 0x44);
       const nb = await setBaudrate(device, ifNum, baudRate || 9600);
+      await setControlLines(device, ifNum, true, true); // assert DTR+RTS like desktop serial open
       log(`PL2303 init OK @${nb} if#${ifNum}`);
       const { inEp, outEp } = findBulkEndpoints(device, ifNum);
       log(`PL2303 endpoints: bulk-in=${inEp} bulk-out=${outEp}`);
@@ -128,6 +136,7 @@
       for (let i = 0; i < n; i++) out[i] = this.rx.shift();
       return out;
     }
+    flush() { this.rx = []; }
     async readExactly(n, timeoutMs = 1500) {
       const t0 = Date.now();
       while (true) {

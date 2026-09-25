@@ -1,5 +1,5 @@
 /* Offline-first service worker for BF-888 PWA. Bump VERSION to force update. */
-const VERSION = 'bf888-v2';
+const VERSION = 'bf888-v3';
 const ASSETS = ['./index.html', './app.js', './pl2303.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (e) => {

@@ -249,11 +249,12 @@ async function readExactly(n, timeoutMs = 1500) {
 const hex = (u8) => [...u8].map(b => b.toString(16).padStart(2, '0')).join(' ');
 
 async function enterProgMode() {
+  if (usbPort) usbPort.flush(); // drop stale PL2303 pump bytes from init
   await writeBytes(new Uint8Array([0x02]));
-  await sleep(100); // BF-888 needs ~100ms here (see h777.py comment)
+  await sleep(150); // BF-888 needs ~100ms here (see h777.py); USB path is slower so use 150ms
   await writeBytes(new TextEncoder().encode('PROGRAM'));
-  const a1 = await readExactly(1);
-  if (a1[0] !== ACK) throw new Error('radio refused programming mode (no ACK, got 0x' + a1[0].toString(16) + ')');
+  const a1 = await readExactly(1, 2500);
+  if (a1[0] !== ACK) throw new Error('radio refused programming mode (no ACK, got 0x' + a1[0].toString(16) + ' — check radio is ON with volume up, cable fully seated, then retry Read)');
   await writeBytes(new Uint8Array([0x02]));
   const ident = await readExactly(8, 2500); // some BF-888 stagger ident bytes ~0.33s
   log('ident: ' + hex(ident));
