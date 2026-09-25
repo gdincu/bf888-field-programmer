@@ -145,18 +145,55 @@ function writeSettings(st) {
   image[s2 + 3] = st.timeouttimer | 0; image[s2 + 7] = (image[s2 + 7] & 0xFE) | (st.scanmode & 1);
 }
 
-// ---------- WebUSB PL2303 transport (USB-only build) ----------
-let usbPort = null; // Pl2303WebUsb instance
+// ---------- Transports: Web Serial (desktop) + WebUSB PL2303 (Android) ----------
+// Desktop OS claims USB-serial cables with its own driver (COM port), so WebUSB
+// gets "Access denied" there — must use Web Serial. Android has no such driver,
+// and its Web Serial list is Bluetooth-only — must use WebUSB.
+let port = null, reader = null, writer = null; // Web Serial (desktop)
+let usbPort = null; // Pl2303WebUsb instance (Android)
+const hasSerial = 'serial' in navigator;
 const hasUsb = 'usb' in navigator;
-$('compat').textContent = hasUsb ? 'USB OK' : 'no WebUSB';
-$('compat').className = 'badge ' + (hasUsb ? 'ok' : 'err');
-if (!hasUsb) log('WARNING: navigator.usb missing. Use Chrome/Edge over HTTPS or localhost.');
+const isAndroid = /Android/i.test(navigator.userAgent || '');
+$('compat').textContent = (hasSerial || hasUsb) ? 'ready' : 'no USB API';
+$('compat').className = 'badge ' + ((hasSerial || hasUsb) ? 'ok' : 'err');
+if (!hasSerial && !hasUsb) log('WARNING: no USB API. Use Chrome/Edge over HTTPS or localhost.');
+if (hasSerial && !isAndroid) {
+  navigator.serial.addEventListener('disconnect', (e) => {
+    log('serial disconnect');
+    if (port && e.target === port) closePort();
+  });
+}
 if (hasUsb) {
   navigator.usb.getDevices().then((devs) => {
     if (devs && devs.length) log(`WebUSB already-paired devices: ${devs.length}`);
   }).catch(() => {});
   navigator.usb.addEventListener('connect', (e) => log('USB device plugged: ' + (e.device.productName || 'unknown')));
-  navigator.usb.addEventListener('disconnect', (e) => log('USB device unplugged'));
+  navigator.usb.addEventListener('disconnect', (e) => {
+    log('USB device unplugged');
+    if (usbPort && e.device === usbPort.device) closePort();
+  });
+}
+async function openSerialPort() {
+  if (!hasSerial) throw new Error('Web Serial not available.');
+  await closePort();
+  try {
+    port = await navigator.serial.requestPort({});
+  } catch (e) {
+    if (e && (e.name === 'NotFoundError' || e.name === 'AbortError'))
+      throw new Error('no port picked. If the list is empty, the OS has not exposed a COM port (driver/cable). Check Device Manager / dmesg.');
+    throw e;
+  }
+  await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
+  reader = port.readable.getReader();
+  writer = port.writable.getWriter();
+  log('port open @9600 8N1 (Web Serial)');
+}
+async function openPort() {
+  // Route by platform: Android -> raw WebUSB (serial list is BT-only there),
+  // desktop -> OS COM port via Web Serial (WebUSB is blocked by the OS driver).
+  if (isAndroid) return openUsbPort();
+  if (hasSerial) return openSerialPort();
+  return openUsbPort();
 }
 async function openUsbPort() {
   if (!hasUsb) throw new Error('WebUSB not available. Use Chrome/Edge over HTTPS or localhost.');
@@ -176,20 +213,36 @@ async function openUsbPort() {
   log('USB port open @9600 8N1 (WebUSB PL2303)');
 }
 async function closePort() {
+  try { reader && reader.releaseLock(); } catch {}
+  try { writer && writer.releaseLock(); } catch {}
+  try { port && await port.close(); } catch {}
+  reader = writer = port = null;
   if (usbPort) { try { await usbPort.close(); } catch {} usbPort = null; }
 }
 async function writeBytes(u8) {
-  if (!usbPort) throw new Error('no USB port open. Tap Connect cable first.');
-  await usbPort.writeBytes(u8);
+  if (usbPort) { await usbPort.writeBytes(u8); return; }
+  if (!writer) throw new Error('no port open. Tap Connect first.');
+  await writer.write(u8);
 }
 async function readExactly(n, timeoutMs = 1500) {
-  if (!usbPort) throw new Error('no USB port open. Tap Connect cable first.');
-  return usbPort.readExactly(n, timeoutMs);
+  if (usbPort) return usbPort.readExactly(n, timeoutMs);
+  if (!reader) throw new Error('no port open. Tap Connect first.');
+  const out = new Uint8Array(n); let got = 0;
+  const t0 = Date.now();
+  while (got < n) {
+    if (Date.now() - t0 > timeoutMs) throw new Error(`serial timeout (${got}/${n} bytes)`);
+    const { value, done } = await reader.read();
+    if (done) throw new Error('serial stream closed');
+    if (!value || !value.length) continue;
+    out.set(value.subarray(0, n - got), got);
+    got += Math.min(value.length, n - got);
+  }
+  return out;
 }
 const hex = (u8) => [...u8].map(b => b.toString(16).padStart(2, '0')).join(' ');
 
 async function enterProgModeOnce() {
-  usbPort.flush(); // drop stale PL2303 pump bytes from init
+  if (usbPort) usbPort.flush(); // drop stale PL2303 pump bytes from init
   await writeBytes(new Uint8Array([0x02]));
   await sleep(150); // BF-888 needs ~100ms (h777.py); 150ms is the value Read worked with — keep
   await writeBytes(new TextEncoder().encode('PROGRAM'));
@@ -212,7 +265,7 @@ async function enterProgMode() {
     try {
       if (attempt > 1) {
         log(`prog mode retry ${attempt}/3...`);
-        usbPort.flush();
+        if (usbPort) usbPort.flush();
         await sleep(300);
       }
       await enterProgModeOnce();
@@ -252,7 +305,7 @@ async function writeBlock(addr, bytes8) {
 }
 
 async function doRead() {
-  if (!usbPort) await openUsbPort();
+  if (!port && !usbPort) await openPort();
   try {
     await enterProgMode();
     const buf = new Uint8Array(MEMSIZE);
@@ -270,7 +323,7 @@ async function doRead() {
 
 async function doWrite() {
   if (!image) { log('nothing to write'); return; }
-  if (!usbPort) await openUsbPort();
+  if (!port && !usbPort) await openPort();
   await sleep(300); // settle before first prog attempt on Write (radio exiting idle)
   try {
     await enterProgMode();
@@ -411,7 +464,7 @@ function fmtVidPid(vid, pid) {
 }
 
 // ---------- wiring ----------
-$('btnConnect').onclick = async () => { try { await openUsbPort(); log('connected. Now Read or Write.'); } catch (e) { log('connect failed: ' + e.message); } };
+$('btnConnect').onclick = async () => { try { await openPort(); log('connected. Now Read or Write.'); } catch (e) { log('connect failed: ' + e.message); } };
 $('btnRead').onclick = async () => {
   $('btnRead').disabled = true;
   try { collectFormToImageLight(); await doRead(); } catch (e) { log('READ FAILED: ' + e.message); await closePort(); }
