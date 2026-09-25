@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BF-888 Field Programmer</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#111827">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background: #111827; color: #e5e7eb; }
+header { position: sticky; top: 0; z-index: 5; background: #111827; border-bottom: 1px solid #374151; padding: 10px 12px; }
+h1 { font-size: 17px; margin: 0 0 2px; }
+.sub { font-size: 12px; color: #9ca3af; }
+main { padding: 12px; padding-bottom: 120px; max-width: 720px; margin: 0 auto; }
+.card { background: #1f2937; border: 1px solid #374151; border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button { min-height: 44px; border-radius: 10px; border: 1px solid #4b5563; background: #374151; color: #fff; padding: 10px 14px; font-size: 15px; }
+button.primary { background: #16a34a; border-color: #16a34a; font-weight: 700; }
+button.danger { background: #7f1d1d; border-color: #991b1b; }
+button:disabled { opacity: .45; }
+button.small { min-height: 36px; font-size: 13px; padding: 6px 10px; }
+input, select { min-height: 44px; border-radius: 10px; border: 1px solid #4b5563; background: #111827; color: #fff; padding: 8px 10px; font-size: 15px; }
+input[type="checkbox"] { min-height: 24px; width: 24px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { padding: 6px 4px; border-bottom: 1px solid #374151; text-align: left; vertical-align: middle; }
+th { color: #9ca3af; font-weight: 600; font-size: 12px; position: sticky; top: 0; background: #1f2937; }
+.chnum { font-weight: 700; width: 30px; }
+.freq { width: 108px; }
+.mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; }
+#log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; background: #030712; border-radius: 10px; padding: 10px; max-height: 220px; overflow: auto; }
+.badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #374151; }
+.badge.ok { background: #14532d; } .badge.warn { background: #713f12; } .badge.err { background: #7f1d1d; }
+details { margin-top: 8px; } summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+label { font-size: 13px; color: #d1d5db; display: flex; flex-direction: column; gap: 4px; }
+label.inline { flex-direction: row; align-items: center; gap: 8px; }
+.progress { height: 8px; background: #374151; border-radius: 999px; overflow: hidden; }
+.progress > div { height: 100%; width: 0%; background: #22c55e; }
+.hint { font-size: 12px; color: #9ca3af; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BF-888 Field Programmer</h1>
+  <div class="sub">Offline PWA &bull; Baofeng BF-888 / H777 &bull; 16ch UHF &bull; <span id="compat" class="badge">checking…</span></div>
+</header>
+<main>
+  <div class="card">
+    <div class="row">
+      <button id="btnConnect" class="primary">Connect cable</button>
+      <button id="btnRead">Read radio</button>
+      <button id="btnWrite" disabled>Write radio</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <div class="progress" style="flex:1"><div id="bar"></div></div>
+      <span id="status" class="hint">idle</span>
+    </div>
+    <p class="hint">Android + Chrome/Edge + USB-OTG. Same cable as CHIRP. Baud 9600. If no serial prompt appears, Chrome can't claim your cable chip (common with CH340/PL2303 clones) — see README fallback (native serial app or ESP32 bridge).</p>
+    <div class="row">
+      <button id="btnDemo" class="small">Load demo data</button>
+      <button id="btnExport" class="small">Export JSON</button>
+      <button id="btnImport" class="small">Import JSON</button>
+      <input type="file" id="file" accept="application/json" style="display:none">
+      <button id="btnBin" class="small">Download .bin</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 8px">Channels 1–16</h3>
+    <div style="overflow:auto">
+    <table>
+      <thead><tr><th>CH</th><th>RX MHz</th><th>TX MHz</th><th>Tone</th><th>Pwr</th><th>BW</th><th>Skip</th></tr></thead>
+      <tbody id="chbody"></tbody>
+    </table>
+    </div>
+    <p class="hint">Empty = RX blank/0. TX blank = RX-only (duplex off). TX=RX = simplex. Tone: None / Tone (encode) / TSQL (both) / DTCS (both, N polarity). Per-channel BCL lives under Details. Full Cross modes: edit JSON.</p>
+    <details><summary>Per-channel BCL / scramble + raw</summary><div id="chextra" class="hint">Read a radio first.</div></details>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 8px">Settings</h3>
+    <div class="grid2" id="settings"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin:0 0 8px">Log</h3>
+    <div id="log"></div>
+  </div>
+</main>
+<script src="app.js"></script>
+<script>
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register('./sw.js').catch(()=>{}); }
+</script>
+</body>
+</html>

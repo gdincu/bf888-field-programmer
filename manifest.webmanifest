@@ -1,0 +1,19 @@
+{
+  "name": "BF-888 Field Programmer",
+  "short_name": "BF888",
+  "description": "Offline PWA to read/write Baofeng BF-888 (H777) 16 channels over USB serial. Port of CHIRP h777 driver.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
