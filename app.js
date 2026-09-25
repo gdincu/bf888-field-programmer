@@ -214,7 +214,7 @@ async function openUsbPort() {
     device = await navigator.usb.requestDevice({ filters });
   } catch (e) {
     if (e && (e.name === 'NotFoundError' || e.name === 'AbortError'))
-      throw new Error('no USB device picked. Plug the cable (radio off), press Cancel on the system popup, then retry. Check chrome://device-log.');
+      throw new Error('no USB device picked. Plug cable into radio while OFF, plug USB into phone, press Cancel on the system popup, turn radio ON, then retry. Check chrome://device-log.');
     throw e;
   }
   log(`USB opening ${device.productName || '?'} ${fmtVidPid(device.vendorId, device.productId)}...`);
@@ -251,10 +251,10 @@ const hex = (u8) => [...u8].map(b => b.toString(16).padStart(2, '0')).join(' ');
 async function enterProgModeOnce() {
   if (usbPort) usbPort.flush(); // drop stale PL2303 pump bytes from init
   await writeBytes(new Uint8Array([0x02]));
-  await sleep(usbPort ? 200 : 150); // BF-888 needs ~100ms (h777.py); USB path is slower
+  await sleep(150); // BF-888 needs ~100ms (h777.py); 150ms is the value Read worked with — keep
   await writeBytes(new TextEncoder().encode('PROGRAM'));
   const a1 = await readExactly(1, 2500);
-  if (a1[0] !== ACK) throw new Error('radio refused programming mode (no ACK, got 0x' + a1[0].toString(16) + ' — check radio is ON with volume up, cable fully seated, then retry)');
+  if (a1[0] !== ACK) throw new Error('radio refused programming mode (no ACK, got 0x' + a1[0].toString(16) + ' — plug cable with radio OFF, then turn radio ON, volume up, cable fully seated, then retry)');
   await writeBytes(new Uint8Array([0x02]));
   const ident = await readExactly(8, 2500); // some BF-888 stagger ident bytes ~0.33s
   log('ident: ' + hex(ident));
