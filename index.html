@@ -53,25 +53,14 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
 <main>
   <div class="card">
     <div class="row">
-      <button id="btnConnect" class="primary">Connect cable</button>
-      <button id="btnRead">Read radio</button>
-      <button id="btnWrite" disabled>Write radio</button>
+      <button id="btnConnect" class="primary">Connect</button>
+      <button id="btnRead">Read</button>
+      <button id="btnWrite" disabled>Write</button>
     </div>
     <div class="row" style="margin-top:8px">
       <div class="progress" style="flex:1"><div id="bar"></div></div>
       <span id="status" class="hint">idle</span>
     </div>
-    <details>
-      <summary>How to connect</summary>
-      <ul class="howto">
-        <li>Plug cable into radio while OFF</li>
-        <li>Plug USB into phone</li>
-        <li>Press Cancel on the system "Choose an app" popup</li>
-        <li>Turn radio ON (flash + volume up)</li>
-        <li>Tap Connect cable</li>
-        <li>Then Read radio</li>
-      </ul>
-    </details>
     <div class="row">
       <button id="btnExport" class="small">Export JSON</button>
       <button id="btnImport" class="small">Import JSON</button>
@@ -94,6 +83,20 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
     <details id="logdetails">
       <summary>Log</summary>
       <div id="log"></div>
+    </details>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>How to connect</summary>
+      <ul class="howto">
+        <li>Plug cable into radio while OFF</li>
+        <li>Plug USB into phone</li>
+        <li>Press Cancel on the system "Choose an app" popup</li>
+        <li>Turn radio ON (flash + volume up)</li>
+        <li>Tap Connect</li>
+        <li>Then Read</li>
+      </ul>
     </details>
   </div>
 </main>
