@@ -145,65 +145,19 @@ function writeSettings(st) {
   image[s2 + 3] = st.timeouttimer | 0; image[s2 + 7] = (image[s2 + 7] & 0xFE) | (st.scanmode & 1);
 }
 
-// ---------- Web Serial transport ----------
-let port = null, reader = null, writer = null;
-const hasSerial = 'serial' in navigator;
+// ---------- WebUSB PL2303 transport (USB-only build) ----------
+let usbPort = null; // Pl2303WebUsb instance
 const hasUsb = 'usb' in navigator;
-const isAndroid = /Android/i.test(navigator.userAgent || '');
-$('compat').textContent = hasSerial ? 'Web Serial OK' : 'no Web Serial';
-$('compat').className = 'badge ' + (hasSerial ? 'ok' : 'err');
-if (!hasSerial) log('WARNING: navigator.serial missing. Use Chrome/Edge (desktop or Android), HTTPS or localhost.');
-if (hasSerial && isAndroid) {
-  log('NOTE: on most Android phones navigator.serial lists Bluetooth only, not USB UART bridges (CH340/PL2303/CP2102/FTDI). Native USB serial needs Chrome 148+ plus the new Android Serial API (limited devices, 2026+). If the Chrome list is empty, use Diagnose USB below.');
-}
-if (hasSerial) {
-  // Show already-paired ports; helps distinguish "empty because no permission yet" vs "empty because incompatible".
-  navigator.serial.getPorts().then((ports) => {
-    if (ports && ports.length) {
-      log(`paired serial ports: ${ports.length}`);
-      ports.forEach((p, i) => { try { log(` paired[${i}]: ${JSON.stringify(p.getInfo())}`); } catch {} });
-    }
-  }).catch(() => {});
-  navigator.serial.addEventListener('connect', (e) => {
-    try { log('serial connect: ' + JSON.stringify(e.target.getInfo())); } catch { log('serial connect'); }
-  });
-  navigator.serial.addEventListener('disconnect', (e) => {
-    log('serial disconnect');
-    if (port && e.target === port) closePort();
-  });
-}
-if (hasUsb && isAndroid) {
+$('compat').textContent = hasUsb ? 'USB OK' : 'no WebUSB';
+$('compat').className = 'badge ' + (hasUsb ? 'ok' : 'err');
+if (!hasUsb) log('WARNING: navigator.usb missing. Use Chrome/Edge over HTTPS or localhost.');
+if (hasUsb) {
   navigator.usb.getDevices().then((devs) => {
-    if (devs && devs.length) log(`WebUSB already-paired devices: ${devs.length} (tap Diagnose USB for VID:PID)`);
+    if (devs && devs.length) log(`WebUSB already-paired devices: ${devs.length}`);
   }).catch(() => {});
   navigator.usb.addEventListener('connect', (e) => log('USB device plugged: ' + (e.device.productName || 'unknown')));
   navigator.usb.addEventListener('disconnect', (e) => log('USB device unplugged'));
 }
-
-async function openPort() {
-  if (!hasSerial) throw new Error('Web Serial not available. Use Chrome/Edge over HTTPS or localhost.');
-  try {
-    port = await navigator.serial.requestPort({});
-  } catch (e) {
-    // User cancelled, or no compatible device found.
-    if (e && (e.name === 'NotFoundError' || e.name === 'AbortError')) {
-      let msg = 'no port picked. ';
-      if (isAndroid) {
-        msg += 'On Android the Chrome serial list is usually Bluetooth-only, so a USB cable (067B:2303 PL2303 etc) will NOT appear here even though Diagnose USB sees it. '
-          + 'Use "Connect USB (PL2303)" instead. Always press Cancel on the system "Choose an app" popup first.';
-      } else {
-        msg += 'If the list is empty, the OS has not exposed a COM port (driver/cable). Check Device Manager / dmesg and use a genuine FTDI/CP2102 cable if needed.';
-      }
-      throw new Error(msg);
-    }
-    throw e;
-  }
-  await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none', flowControl: 'none' });
-  reader = port.readable.getReader();
-  writer = port.writable.getWriter();
-  log('port open @9600 8N1 (Web Serial)');
-}
-let usbPort = null; // Pl2303WebUsb instance (WebUSB path, Android)
 async function openUsbPort() {
   if (!hasUsb) throw new Error('WebUSB not available. Use Chrome/Edge over HTTPS or localhost.');
   if (typeof Pl2303WebUsb === 'undefined') throw new Error('PL2303 driver missing (pl2303.js not loaded).');
@@ -222,34 +176,20 @@ async function openUsbPort() {
   log('USB port open @9600 8N1 (WebUSB PL2303)');
 }
 async function closePort() {
-  try { reader && reader.releaseLock(); } catch {}
-  try { writer && writer.releaseLock(); } catch {}
-  try { port && await port.close(); } catch {}
-  reader = writer = port = null;
   if (usbPort) { try { await usbPort.close(); } catch {} usbPort = null; }
 }
 async function writeBytes(u8) {
-  if (usbPort) { await usbPort.writeBytes(u8); return; }
-  await writer.write(u8);
+  if (!usbPort) throw new Error('no USB port open. Tap Connect cable first.');
+  await usbPort.writeBytes(u8);
 }
 async function readExactly(n, timeoutMs = 1500) {
-  if (usbPort) return usbPort.readExactly(n, timeoutMs);
-  const out = new Uint8Array(n); let got = 0;
-  const t0 = Date.now();
-  while (got < n) {
-    if (Date.now() - t0 > timeoutMs) throw new Error(`serial timeout (${got}/${n} bytes)`);
-    const { value, done } = await reader.read();
-    if (done) throw new Error('serial stream closed');
-    if (!value || !value.length) continue;
-    out.set(value.subarray(0, n - got), got);
-    got += Math.min(value.length, n - got);
-  }
-  return out;
+  if (!usbPort) throw new Error('no USB port open. Tap Connect cable first.');
+  return usbPort.readExactly(n, timeoutMs);
 }
 const hex = (u8) => [...u8].map(b => b.toString(16).padStart(2, '0')).join(' ');
 
 async function enterProgModeOnce() {
-  if (usbPort) usbPort.flush(); // drop stale PL2303 pump bytes from init
+  usbPort.flush(); // drop stale PL2303 pump bytes from init
   await writeBytes(new Uint8Array([0x02]));
   await sleep(150); // BF-888 needs ~100ms (h777.py); 150ms is the value Read worked with — keep
   await writeBytes(new TextEncoder().encode('PROGRAM'));
@@ -272,7 +212,7 @@ async function enterProgMode() {
     try {
       if (attempt > 1) {
         log(`prog mode retry ${attempt}/3...`);
-        if (usbPort) usbPort.flush();
+        usbPort.flush();
         await sleep(300);
       }
       await enterProgModeOnce();
@@ -308,11 +248,11 @@ async function writeBlock(addr, bytes8) {
     throw new Error(`no ACK after write @${addr.toString(16)} (${e.message})`);
   }
   if (a[0] !== ACK) throw new Error(`no ACK after write @${addr.toString(16)} (got 0x${a[0].toString(16)})`);
-  if (usbPort) await sleep(40); // let clone EEPROM + PL2303 settle; desktop serial paces itself
+  await sleep(40); // let clone EEPROM + PL2303 settle
 }
 
 async function doRead() {
-  if (!port && !usbPort) await openPort();
+  if (!usbPort) await openUsbPort();
   try {
     await enterProgMode();
     const buf = new Uint8Array(MEMSIZE);
@@ -330,7 +270,8 @@ async function doRead() {
 
 async function doWrite() {
   if (!image) { log('nothing to write'); return; }
-  if (!port && !usbPort) await openPort();
+  if (!usbPort) await openUsbPort();
+  await sleep(300); // settle before first prog attempt on Write (radio exiting idle)
   try {
     await enterProgMode();
     let n = 0; const total = RANGES.reduce((a, [s, e]) => a + (e - s) / BLOCK, 0);
@@ -457,60 +398,15 @@ function toJSON() {
   return JSON.stringify({ radio: 'Baofeng BF-888', channels: parseChannels(), settings: parseSettings(), rawHex: [...image].map(b => b.toString(16).padStart(2, '0')).join('') }, null, 1);
 }
 
-// ---------- Android USB diagnostics (WebUSB is read-only probe; serial I/O still uses Web Serial) ----------
-const KNOWN_UUART_VIDS = [
-  { usbVendorId: 0x0403 }, // FTDI
-  { usbVendorId: 0x067B }, // Prolific PL2303 (many Baofeng cables; clones common)
-  { usbVendorId: 0x10C4 }, // Silicon Labs CP210x
-  { usbVendorId: 0x1A86 }, // WCH CH340/CH341
-  { usbVendorId: 0x0483 }, // ST CDC
-  { usbVendorId: 0x2341 }, // Arduino
-];
+// ---------- USB helpers ----------
 const VID_NAME = { '0403': 'FTDI?', '067b': 'Prolific PL2303?', '10c4': 'SiLabs CP210x?', '1a86': 'WCH CH340?', '0483': 'ST CDC?', '2341': 'Arduino?' };
 function fmtVidPid(vid, pid) {
   const v = (vid || 0).toString(16).padStart(4, '0'), p = (pid || 0).toString(16).padStart(4, '0');
   return `${v}:${p} (${VID_NAME[v.toLowerCase()] || 'unknown chip'})`;
 }
-async function diagnoseUsb() {
-  const infoEl = $('usbinfo');
-  if (!hasUsb) {
-    const m = 'WebUSB not available in this browser. Use Chrome/Edge, HTTPS or localhost.';
-    log(m); if (infoEl) infoEl.textContent = m;
-    return;
-  }
-  try {
-    const paired = await navigator.usb.getDevices();
-    log(`WebUSB paired devices: ${paired.length}`);
-    paired.forEach((d) => log(` - ${d.productName || 'unknown'} ${fmtVidPid(d.vendorId, d.productId)}`));
-    if (infoEl && paired.length) infoEl.textContent = paired.map((d) => fmtVidPid(d.vendorId, d.productId)).join(', ');
-    // requestDevice needs a user gesture (this button click qualifies) and at least one filter.
-    log('opening USB chooser for known UART VIDs (FTDI/PL2303/CP210x/CH340)... Cancel = none visible to Chrome.');
-    const dev = await navigator.usb.requestDevice({ filters: KNOWN_UUART_VIDS });
-    log(`USB picked: ${dev.productName || '?'} by ${dev.manufacturerName || '?'} ${fmtVidPid(dev.vendorId, dev.productId)}`);
-    log(` class=${dev.deviceClass} subclass=${dev.deviceSubclass} proto=${dev.deviceProtocol} configs=${dev.configurations?.length || 0}`);
-    (dev.configurations || []).forEach((c, i) => {
-      (c.interfaces || []).forEach((itf) => {
-        const alts = (itf.alternates || []).map((a) => `cls=${a.interfaceClass}/${a.interfaceSubclass}/${a.interfaceProtocol}`).join('|');
-        log(`  cfg${i} if#${itf.interfaceNumber} claimed=${itf.claimed} ${alts}`);
-      });
-    });
-    if (infoEl) infoEl.textContent = fmtVidPid(dev.vendorId, dev.productId);
-    log('If this is 067B:2303 use "Connect USB (PL2303)" to read/write. Other chips (CH340 etc) are probe-only in this build.');
-  } catch (e) {
-    if (e && (e.name === 'NotFoundError' || e.name === 'AbortError')) {
-      log('USB chooser: nothing picked. If your cable was plugged in but absent here, Android/Chrome cannot claim that chip (typical for PL2303 clones), or another app already claimed it, or OTG/power is wrong. Check chrome://device-log.');
-      if (infoEl) infoEl.textContent = 'no USB device picked/visible';
-    } else {
-      log('USB diagnose failed: ' + (e && e.message || e));
-    }
-  }
-}
 
 // ---------- wiring ----------
-$('btnConnect').onclick = async () => { try { await openPort(); log('connected. Now Read or Write.'); } catch (e) { log('connect failed: ' + e.message); } };
-const _btnUsbConn = $('btnUsbConnect');
-if (_btnUsbConn) _btnUsbConn.onclick = async () => { try { await openUsbPort(); log('USB connected. Now Read or Write.'); } catch (e) { log('USB connect failed: ' + e.message); } };
-const _btnUsb = $('btnUsb'); if (_btnUsb) _btnUsb.onclick = () => { diagnoseUsb(); };
+$('btnConnect').onclick = async () => { try { await openUsbPort(); log('connected. Now Read or Write.'); } catch (e) { log('connect failed: ' + e.message); } };
 $('btnRead').onclick = async () => {
   $('btnRead').disabled = true;
   try { collectFormToImageLight(); await doRead(); } catch (e) { log('READ FAILED: ' + e.message); await closePort(); }
@@ -523,21 +419,9 @@ $('btnWrite').onclick = async () => {
   try { collectFormToImage(); await doWrite(); } catch (e) { log('WRITE FAILED: ' + e.message); await closePort(); }
   $('btnWrite').disabled = false;
 };
-$('btnDemo').onclick = () => {
-  image = new Uint8Array(MEMSIZE).fill(0xFF);
-  writeChannel({ number: 1, empty: false, rxHz: 446006250, txHz: 446006250, tmode: 'None', power: 'High', bw: 'NFM' });
-  writeChannel({ number: 2, empty: false, rxHz: 446018750, txHz: 446018750, tmode: 'Tone', rtone: 77.0, power: 'Low', bw: 'NFM' });
-  writeSettings({ voiceprompt: true, voicelanguage: 0, scan: true, vox: false, voxlevel: 1, voxinhibitonrx: false, lowvolinhibittx: false, highvolinhibittx: false, alarm: true, fmradio: false, beep: true, batterysaver: true, squelchlevel: 5, sidekeyfunction: 1, timeouttimer: 0, scanmode: 0 });
-  renderAll(); $('btnWrite').disabled = false; log('demo loaded (edit, then Write)');
-};
 $('btnExport').onclick = () => {
   const blob = new Blob([toJSON()], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'bf888.json'; a.click();
-};
-$('btnBin').onclick = () => {
-  collectFormToImage();
-  const blob = new Blob([image], { type: 'application/octet-stream' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'bf888.bin'; a.click();
 };
 $('btnImport').onclick = () => $('file').click();
 $('file').onchange = async (e) => {

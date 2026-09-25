@@ -45,7 +45,7 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
 <body>
 <header>
   <h1>BF-888 Field Programmer</h1>
-  <div class="sub">Offline PWA &bull; Baofeng BF-888 / H777 &bull; 16ch UHF &bull; <span id="compat" class="badge">checking…</span></div>
+  <div class="sub">Baofeng BF-888 / H777 &bull; 16ch UHF &bull; <span id="compat" class="badge">checking…</span></div>
 </header>
 <main>
   <div class="card">
@@ -58,18 +58,11 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
       <div class="progress" style="flex:1"><div id="bar"></div></div>
       <span id="status" class="hint">idle</span>
     </div>
-    <p class="hint">Laptop (Chrome/Edge desktop): plug in, Connect cable, pick COM port.<br>Android phone (PL2303 cable 067B:2303): plug in (radio off), press Cancel on the system "Choose an app" popup — the PWA never appears there — then tap Connect USB (PL2303), then Read radio. If that fails, tap Diagnose USB and see README.</p>
+    <p class="hint">Plug cable into radio while OFF, USB into phone, press Cancel on the system "Choose an app" popup — the PWA never appears there — then turn radio ON (volume up), tap Connect cable, then Read radio.</p>
     <div class="row">
-      <button id="btnUsbConnect" class="small">Connect USB (PL2303)</button>
-      <button id="btnUsb" class="small">Diagnose USB</button>
-      <span id="usbinfo" class="hint"></span>
-    </div>
-    <div class="row">
-      <button id="btnDemo" class="small">Load demo data</button>
       <button id="btnExport" class="small">Export JSON</button>
       <button id="btnImport" class="small">Import JSON</button>
       <input type="file" id="file" accept="application/json" style="display:none">
-      <button id="btnBin" class="small">Download .bin</button>
     </div>
   </div>
 
