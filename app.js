@@ -247,7 +247,8 @@ async function readExactly(n, timeoutMs = 1500) {
 }
 const hex = (u8) => [...u8].map(b => b.toString(16).padStart(2, '0')).join(' ');
 
-let lastExitAt = 0; // ms timestamp of last exitProgMode; enforces re-entry settle
+let lastExitAt = 0; // ms timestamp of last exitProgMode
+let minProgGapMs = 300; // re-entry settle; raised after write sessions (EEPROM + reboot)
 // NOTE: no RX drain on Web Serial — a timed-out reader.read() stays queued on
 // the stream and would steal the radio's next ACK byte. Stale bytes are benign:
 // the ident check is includes('P3107'), and the settle gap below stops them
@@ -283,7 +284,7 @@ async function enterProgMode() {
   // Also: back-to-back ops (write->read) fail first try on Web Serial because the
   // radio hasn't settled after the previous session's 'E' — enforce a gap.
   const gap = Date.now() - lastExitAt;
-  if (gap < 300) await sleep(300 - gap);
+  if (gap < minProgGapMs) await sleep(minProgGapMs - gap);
   let lastErr = null;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -301,7 +302,7 @@ async function enterProgMode() {
   }
   throw lastErr;
 }
-async function exitProgMode() { try { await writeBytes(new TextEncoder().encode('E')); } catch {} finally { lastExitAt = Date.now(); } }
+async function exitProgMode(settleMs = 300) { try { await writeBytes(new TextEncoder().encode('E')); } catch {} finally { lastExitAt = Date.now(); minProgGapMs = settleMs; } }
 async function readBlock(addr) {
   await writeBytes(new Uint8Array([0x52, (addr >> 8) & 0xFF, addr & 0xFF, BLOCK])); // 'R'
   const r = await readExactly(4 + BLOCK);
@@ -359,7 +360,7 @@ async function doWrite() {
       }
     }
     log('write OK');
-  } finally { await exitProgMode(); }
+  } finally { await exitProgMode(1000); } // EEPROM programming + reboot needs longer before re-entry
 }
 
 // ---------- UI: channels + settings ----------
