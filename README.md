@@ -1,6 +1,9 @@
 # bf888-field-programmer
 Read and write Baofeng BF-888 channels and settings over USB serial
 
+<img width="766" height="522" alt="image" src="https://github.com/user-attachments/assets/57e351c2-fe65-4b52-b7a6-001e90933bb0" />
+
+
 ## Use
 
 1. Plug the cable into the radio (off), then USB-OTG into the phone
