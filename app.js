@@ -258,7 +258,15 @@ async function enterProgModeOnce() {
   await writeBytes(new Uint8Array([0x02]));
   await sleep(150); // BF-888 needs ~100ms (h777.py); 150ms is the value Read worked with — keep
   await writeBytes(new TextEncoder().encode('PROGRAM'));
-  const a1 = await readExactly(1, 2500);
+  let a1 = await readExactly(1, 2500);
+  if (a1[0] !== ACK) {
+    // One stale byte can linger from the previous session (observed: always
+    // 0x46 after an 'E' exit). The true ACK to this PROGRAM follows it, so
+    // consume one more byte instead of failing + re-PROGRAMming (the re-ACK
+    // is what shifted the ident to `06 50 33...`).
+    log('stale byte 0x' + a1[0].toString(16) + ' before ACK, reading true ACK...');
+    a1 = await readExactly(1, 1200);
+  }
   if (a1[0] !== ACK) throw new Error('radio refused programming mode (no ACK, got 0x' + a1[0].toString(16) + ' — plug cable with radio OFF, then turn radio ON, volume up, cable fully seated, then retry)');
   await writeBytes(new Uint8Array([0x02]));
   const ident = await readExactly(8, 2500); // some BF-888 stagger ident bytes ~0.33s
