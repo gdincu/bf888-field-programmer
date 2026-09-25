@@ -4,13 +4,15 @@
  * Memory: 0x03E0 bytes; channels at 0x0010, 16 x 16B; settings at 0x02B0/0x03C0.
  */
 
-// ---------- constants (mirror h777.py) ----------
+// ---------- constants (mirror h777.py, flag map verified vs Baofeng BF_V1_FH) ----------
 const ACK = 0x06;
 const BLOCK = 8;
 const MEMSIZE = 0x03E0;
-const RANGES = [[0x0000, 0x0110], [0x0380, 0x03E0], [0x02B0, 0x02C0]];
 const CH_BASE = 0x0010, CH_COUNT = 16, CH_LEN = 16;
 const SET_ADDR = 0x02B0, SET2_ADDR = 0x03C0;
+// Write only what the UI manages. OEM skips <0x10 and writes a fixed model
+// block at 0x03D0 — never overwrite header/model with 0xFF from a fresh image.
+const RANGES = [[0x0010, 0x0110], [0x02B0, 0x02C0], [0x03C0, 0x03C8]];
 // flag bits in channel byte 12 (MSB-first per CHIRP bitwise): skip 0x10, highpower 0x08, narrow 0x04, beatshift 0x02, bcl 0x01
 const F_SKIP = 0x10, F_HIGH = 0x08, F_NARROW = 0x04, F_BEAT = 0x02, F_BCL = 0x01;
 const DTCS_FLAG = 0x80, DTCS_REV = 0x40;
@@ -92,6 +94,7 @@ function parseChannels() {
       skip: !!(fl & F_SKIP),
       bcl: !(fl & F_BCL),          // inverted like CHIRP driver
       beatshift: !(fl & F_BEAT),   // inverted "scramble"
+      flagHigh: fl & 0xE0,         // OEM bit7=Jmpfreq + unknown bits 6,5: preserve, never force
     });
   }
   return out;
@@ -115,7 +118,10 @@ function writeChannel(ch) {
   bit(F_NARROW, ch.bw === 'NFM');
   bit(F_BEAT, !ch.beatshift);
   bit(F_BCL, !ch.bcl);
-  fl &= ~0xE0; // unknown1..3 = 0 (matches CHIRP driver compat note)
+  // Preserve OEM high bits (bit7=Jmpfreq, bits 6,5 unknown). New channels built
+  // on a 0xFF image default them to 0; channels from a real read keep theirs.
+  // Previously `fl &= ~0xE0` wiped Jmpfreq silently.
+  fl = (fl & 0x1F) | ((ch.flagHigh | 0) & 0xE0);
   image[o + 12] = fl;
   image[o + 13] = 0xFF; image[o + 14] = 0xFF; image[o + 15] = 0xFF;
 }
@@ -435,7 +441,7 @@ function collectFormToImage() {
   for (const c of Object.values(byNum)) {
     if (c.empty) { writeChannel({ number: c.number, empty: true }); continue; }
     if (c.rxHz && (c.txHz == null && !c.duplexOff)) c.txHz = c.rxHz; // default simplex
-    writeChannel({ number: c.number, empty: false, rxHz: c.rxHz, txHz: c.txHz, duplexOff: !!c.duplexOff, tmode: c.tmode || 'None', rtone: c.rtone, ctone: c.ctone, dtcs: c.dtcs, power: c.power || 'Low', bw: c.bw || 'FM', skip: !!c.skip, bcl: c.bcl !== false, beatshift: c.beatshift !== false });
+    writeChannel({ number: c.number, empty: false, rxHz: c.rxHz, txHz: c.txHz, duplexOff: !!c.duplexOff, tmode: c.tmode || 'None', rtone: c.rtone, ctone: c.ctone, dtcs: c.dtcs, power: c.power || 'Low', bw: c.bw || 'FM', skip: !!c.skip, bcl: c.bcl !== false, beatshift: c.beatshift !== false, flagHigh: (c.flagHigh | 0) & 0xE0 });
   }
   // settings
   const st = parseSettingsSafe();
