@@ -20,7 +20,7 @@ const SIDEKEY = ['Off','Monitor','Transmit Power','Alarm'];
 // ---------- tiny UI helpers ----------
 const $ = (id) => document.getElementById(id);
 const logEl = $('log'), barEl = $('bar'), statusEl = $('status');
-function log(...a) { logEl.textContent += a.join(' ') + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+function log(...a) { const m = a.join(' '); logEl.textContent += m + '\n'; logEl.scrollTop = logEl.scrollHeight; if (/fail/i.test(m)) { const d = document.getElementById('logdetails'); if (d) d.open = true; } }
 function setProg(cur, max, msg) { barEl.style.width = (100 * cur / max).toFixed(1) + '%'; statusEl.textContent = msg || ''; }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
@@ -289,39 +289,44 @@ async function doWrite() {
 const TONES_CTCSS = ['', '67.0','69.3','71.9','74.4','77.0','79.7','82.5','85.4','88.5','91.5','94.8','97.4','100.0','103.5','107.2','110.9','114.8','118.8','123.0','127.3','131.8','136.5','141.3','146.2','151.4','156.7','159.8','162.2','165.5','167.9','171.3','173.8','177.3','179.9','183.5','186.2','189.9','192.8','196.6','199.5','203.5','206.5','210.7','218.1','225.7','229.1','233.6','241.8','250.3','254.1'];
 const TONES_DTCS = ['', '23','25','26','31','32','36','43','47','51','53','54','65','71','72','73','74','114','115','116','122','125','131','132','134','143','145','152','155','156','162','165','172','174','205','212','223','225','226','243','244','245','246','251','252','255','261','263','265','266','271','274','306','311','315','322','325','331','332','343','346','351','356','364','365','371','411','412','413','423','431','432','445','446','452','454','455','462','464','465','466','503','506','516','523','526','532','546','565','606','612','624','627','631','632','654','662','664','703','712','723','731','732','734','743','754'];
 
-function toneCell(ch) {
-  // simple phone UI: one dropdown family; Cross -> keep but flag
-  if (ch.empty) return '<span class="hint">—</span>';
-  if (ch.tmode === 'Cross') return `<span class="badge warn">Cross (JSON)</span>`;
-  const isD = ch.tmode === 'DTCS';
+function toneSelects(ch) {
+  // stacked phone UI: tone family + value side by side; Cross -> keep but flag
+  const tmode = ch.tmode || 'None';
+  if (tmode === 'Cross') return `<span class="badge warn">Cross (JSON)</span>`;
+  const isD = tmode === 'DTCS';
   const list = isD ? TONES_DTCS : TONES_CTCSS;
-  const cur = ch.tmode === 'None' ? '' : String(ch.tmode === 'Tone' ? ch.rtone.toFixed(1) : ch.tmode === 'TSQL' ? ch.ctone.toFixed(1) : ch.dtcs);
-  const opts = ['None', 'Tone', 'TSQL', 'DTCS'].map(m => `<option ${m === ch.tmode ? 'selected' : ''}>${m}</option>`).join('');
+  const cur = tmode === 'None' ? '' : String(tmode === 'Tone' ? ch.rtone.toFixed(1) : tmode === 'TSQL' ? ch.ctone.toFixed(1) : ch.dtcs);
+  const opts = ['None', 'Tone', 'TSQL', 'DTCS'].map(m => `<option ${m === tmode ? 'selected' : ''}>${m}</option>`).join('');
   const vals = list.map(v => `<option value="${v}" ${v === cur ? 'selected' : ''}>${v || '(none)'}</option>`).join('');
-  return `<select data-n="${ch.number}" data-f="tmode">${opts}</select><select data-n="${ch.number}" data-f="tval">${vals}</select>`;
+  return `<label>Tone<select data-n="${ch.number}" data-f="tmode">${opts}</select></label><label>Value<select data-n="${ch.number}" data-f="tval">${vals}</select></label>`;
 }
 
 function renderChannels() {
-  const tb = $('chbody'); tb.innerHTML = '';
+  const body = $('chbody'); body.innerHTML = '';
   const chs = image ? parseChannels() : Array.from({ length: 16 }, (_, i) => ({ number: i + 1, empty: true }));
   for (const ch of chs) {
-    const tr = document.createElement('tr');
+    const card = document.createElement('div');
+    card.className = 'ch-card';
     const rx = ch.empty ? '' : (ch.rxHz / 1e6).toFixed(4);
     const tx = ch.empty || ch.duplexOff || ch.txHz == null ? '' : (ch.txHz / 1e6).toFixed(4);
-    tr.innerHTML = `<td class="chnum">${ch.number}</td>
-      <td><input class="freq mono" data-n="${ch.number}" data-f="rx" inputmode="decimal" placeholder="—" value="${rx}"></td>
-      <td><input class="freq mono" data-n="${ch.number}" data-f="tx" inputmode="decimal" placeholder="RX-only" value="${tx}"></td>
-      <td>${toneCell(ch)}</td>
-      <td><select data-n="${ch.number}" data-f="power"><option ${ch.power !== 'High' ? 'selected' : ''}>Low</option><option ${ch.power === 'High' ? 'selected' : ''}>High</option></select></td>
-      <td><select data-n="${ch.number}" data-f="bw"><option ${ch.bw !== 'NFM' ? 'selected' : ''}>FM</option><option ${ch.bw === 'NFM' ? 'selected' : ''}>NFM</option></select></td>
-      <td><input type="checkbox" data-n="${ch.number}" data-f="skip" ${ch.skip ? 'checked' : ''}></td>`;
-    tb.appendChild(tr);
-  }
-  const ex = $('chextra');
-  if (image) {
-    ex.innerHTML = chs.map(c => c.empty ? '' :
-      `<label class="inline"><input type="checkbox" data-n="${c.number}" data-f="bcl" ${c.bcl ? 'checked' : ''}> CH${c.number} BCL</label>
-       <label class="inline"><input type="checkbox" data-n="${c.number}" data-f="beatshift" ${c.beatshift ? 'checked' : ''}> CH${c.number} scramble</label>`).join('') || 'all empty';
+    const flags = ch.empty ? '' :
+      `<div class="ch-flags">
+        <label class="inline"><input type="checkbox" data-n="${ch.number}" data-f="bcl" ${ch.bcl ? 'checked' : ''}> BCL</label>
+        <label class="inline"><input type="checkbox" data-n="${ch.number}" data-f="beatshift" ${ch.beatshift ? 'checked' : ''}> Scramble</label>
+      </div>`;
+    card.innerHTML = `<div class="ch-head"><span class="chnum">CH ${ch.number}</span>
+      <label class="inline"><input type="checkbox" data-n="${ch.number}" data-f="skip" ${ch.skip ? 'checked' : ''}> Skip</label></div>
+      <div class="ch-grid">
+        <label>RX MHz<input class="freq mono" data-n="${ch.number}" data-f="rx" inputmode="decimal" placeholder="—" value="${rx}"></label>
+        <label>TX MHz<input class="freq mono" data-n="${ch.number}" data-f="tx" inputmode="decimal" placeholder="RX-only" value="${tx}"></label>
+      </div>
+      <div class="ch-grid">${toneSelects(ch)}</div>
+      <div class="ch-grid">
+        <label>Power<select data-n="${ch.number}" data-f="power"><option ${ch.power !== 'High' ? 'selected' : ''}>Low</option><option ${ch.power === 'High' ? 'selected' : ''}>High</option></select></label>
+        <label>Width<select data-n="${ch.number}" data-f="bw"><option ${ch.bw !== 'NFM' ? 'selected' : ''}>FM</option><option ${ch.bw === 'NFM' ? 'selected' : ''}>NFM</option></select></label>
+      </div>
+      ${flags}`;
+    body.appendChild(card);
   }
 }
 
@@ -348,7 +353,7 @@ function collectFormToImage() {
   if (!image) { image = new Uint8Array(MEMSIZE).fill(0xFF); }
   const chs = parseChannels();
   const byNum = Object.fromEntries(chs.map(c => [c.number, c]));
-  document.querySelectorAll('#chbody [data-n], #chextra [data-n]').forEach(inp => {
+  document.querySelectorAll('#chbody [data-n]').forEach(inp => {
     const n = +inp.dataset.n, f = inp.dataset.f;
     const c = byNum[n] || (byNum[n] = { number: n, empty: true, tmode: 'None' });
     if (f === 'rx') {

@@ -22,13 +22,16 @@ button.primary { background: #16a34a; border-color: #16a34a; font-weight: 700; }
 button.danger { background: #7f1d1d; border-color: #991b1b; }
 button:disabled { opacity: .45; }
 button.small { min-height: 36px; font-size: 13px; padding: 6px 10px; }
-input, select { min-height: 44px; border-radius: 10px; border: 1px solid #4b5563; background: #111827; color: #fff; padding: 8px 10px; font-size: 15px; }
+input, select { min-height: 44px; border-radius: 10px; border: 1px solid #4b5563; background: #111827; color: #fff; padding: 8px 10px; font-size: 15px; width: 100%; }
 input[type="checkbox"] { min-height: 24px; width: 24px; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th, td { padding: 6px 4px; border-bottom: 1px solid #374151; text-align: left; vertical-align: middle; }
-th { color: #9ca3af; font-weight: 600; font-size: 12px; position: sticky; top: 0; background: #1f2937; }
-.chnum { font-weight: 700; width: 30px; }
-.freq { width: 108px; }
+.chnum { font-weight: 700; font-size: 15px; }
+.freq { width: 100%; }
+.ch-card { border: 1px solid #374151; border-radius: 10px; padding: 10px; margin-bottom: 10px; background: #111827; }
+.ch-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.ch-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
+.ch-flags { display: flex; gap: 16px; flex-wrap: wrap; }
+.howto { margin: 4px 0 8px; padding-left: 20px; font-size: 13px; color: #d1d5db; }
+.howto li { margin-bottom: 6px; }
 .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; }
 #log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; background: #030712; border-radius: 10px; padding: 10px; max-height: 220px; overflow: auto; }
 .badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #374151; }
@@ -58,7 +61,17 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
       <div class="progress" style="flex:1"><div id="bar"></div></div>
       <span id="status" class="hint">idle</span>
     </div>
-    <p class="hint">Plug cable into radio while OFF, USB into phone, press Cancel on the system "Choose an app" popup — the PWA never appears there — then turn radio ON (volume up), tap Connect cable, then Read radio.</p>
+    <details>
+      <summary>How to connect</summary>
+      <ul class="howto">
+        <li>Plug cable into radio while OFF</li>
+        <li>Plug USB into phone</li>
+        <li>Press Cancel on the system "Choose an app" popup</li>
+        <li>Turn radio ON (flash + volume up)</li>
+        <li>Tap Connect cable</li>
+        <li>Then Read radio</li>
+      </ul>
+    </details>
     <div class="row">
       <button id="btnExport" class="small">Export JSON</button>
       <button id="btnImport" class="small">Import JSON</button>
@@ -68,14 +81,8 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
 
   <div class="card">
     <h3 style="margin:0 0 8px">Channels 1–16</h3>
-    <div style="overflow:auto">
-    <table>
-      <thead><tr><th>CH</th><th>RX MHz</th><th>TX MHz</th><th>Tone</th><th>Pwr</th><th>BW</th><th>Skip</th></tr></thead>
-      <tbody id="chbody"></tbody>
-    </table>
-    </div>
-    <p class="hint">Empty = RX blank/0. TX blank = RX-only (duplex off). TX=RX = simplex. Tone: None / Tone (encode) / TSQL (both) / DTCS (both, N polarity). Per-channel BCL lives under Details. Full Cross modes: edit JSON.</p>
-    <details><summary>Per-channel BCL / scramble + raw</summary><div id="chextra" class="hint">Read a radio first.</div></details>
+    <div id="chbody"></div>
+    <p class="hint">Empty = RX blank/0. TX blank = RX-only (duplex off). TX=RX = simplex. Tone: None / Tone (encode) / TSQL (both) / DTCS (both, N polarity). Full Cross modes: edit JSON.</p>
   </div>
 
   <div class="card">
@@ -84,8 +91,10 @@ label.inline { flex-direction: row; align-items: center; gap: 8px; }
   </div>
 
   <div class="card">
-    <h3 style="margin:0 0 8px">Log</h3>
-    <div id="log"></div>
+    <details id="logdetails">
+      <summary>Log</summary>
+      <div id="log"></div>
+    </details>
   </div>
 </main>
 <script src="pl2303.js"></script>
