@@ -248,13 +248,13 @@ async function readExactly(n, timeoutMs = 1500) {
 }
 const hex = (u8) => [...u8].map(b => b.toString(16).padStart(2, '0')).join(' ');
 
-async function enterProgMode() {
+async function enterProgModeOnce() {
   if (usbPort) usbPort.flush(); // drop stale PL2303 pump bytes from init
   await writeBytes(new Uint8Array([0x02]));
-  await sleep(150); // BF-888 needs ~100ms here (see h777.py); USB path is slower so use 150ms
+  await sleep(usbPort ? 200 : 150); // BF-888 needs ~100ms (h777.py); USB path is slower
   await writeBytes(new TextEncoder().encode('PROGRAM'));
   const a1 = await readExactly(1, 2500);
-  if (a1[0] !== ACK) throw new Error('radio refused programming mode (no ACK, got 0x' + a1[0].toString(16) + ' — check radio is ON with volume up, cable fully seated, then retry Read)');
+  if (a1[0] !== ACK) throw new Error('radio refused programming mode (no ACK, got 0x' + a1[0].toString(16) + ' — check radio is ON with volume up, cable fully seated, then retry)');
   await writeBytes(new Uint8Array([0x02]));
   const ident = await readExactly(8, 2500); // some BF-888 stagger ident bytes ~0.33s
   log('ident: ' + hex(ident));
@@ -262,8 +262,27 @@ async function enterProgMode() {
   const s = String.fromCharCode(...ident);
   if (!s.includes('P3107')) throw new Error('unexpected ident (not BF-888/H777?): ' + JSON.stringify(s));
   await writeBytes(new Uint8Array([ACK]));
-  const a2 = await readExactly(1);
-  if (a2[0] !== ACK) throw new Error('bad ACK after ident');
+  const a2 = await readExactly(1, 2500);
+  if (a2[0] !== ACK) throw new Error('bad ACK after ident (got 0x' + a2[0].toString(16) + ')');
+}
+async function enterProgMode() {
+  // Cheap PL2303 clones + phone OTG often drop the first PROGRAM attempt; retry with flush.
+  let lastErr = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      if (attempt > 1) {
+        log(`prog mode retry ${attempt}/3...`);
+        if (usbPort) usbPort.flush();
+        await sleep(300);
+      }
+      await enterProgModeOnce();
+      return;
+    } catch (e) {
+      lastErr = e;
+      log(`prog attempt ${attempt} failed: ${e.message}`);
+    }
+  }
+  throw lastErr;
 }
 async function exitProgMode() { try { await writeBytes(new TextEncoder().encode('E')); } catch {} }
 async function readBlock(addr) {
@@ -282,8 +301,14 @@ async function writeBlock(addr, bytes8) {
   pkt[0] = 0x57; pkt[1] = (addr >> 8) & 0xFF; pkt[2] = addr & 0xFF; pkt[3] = BLOCK; // 'W'
   pkt.set(bytes8, 4);
   await writeBytes(pkt);
-  const a = await readExactly(1, 2500); // writes can take ~0.3s on some units
-  if (a[0] !== ACK) throw new Error(`no ACK after write @${addr.toString(16)}`);
+  let a;
+  try {
+    a = await readExactly(1, 2500); // writes can take ~0.3s on some units
+  } catch (e) {
+    throw new Error(`no ACK after write @${addr.toString(16)} (${e.message})`);
+  }
+  if (a[0] !== ACK) throw new Error(`no ACK after write @${addr.toString(16)} (got 0x${a[0].toString(16)})`);
+  if (usbPort) await sleep(40); // let clone EEPROM + PL2303 settle; desktop serial paces itself
 }
 
 async function doRead() {
