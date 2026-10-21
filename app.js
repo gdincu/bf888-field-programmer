@@ -385,8 +385,8 @@ function renderChannels() {
   for (const ch of chs) {
     const card = document.createElement('div');
     card.className = 'ch-card';
-    const rx = ch.empty ? '' : (ch.rxHz / 1e6).toFixed(4);
-    const tx = ch.empty || ch.duplexOff || ch.txHz == null ? '' : (ch.txHz / 1e6).toFixed(4);
+    const rx = ch.empty ? '' : (ch.rxHz / 1e6).toFixed(5);
+    const tx = ch.empty || ch.duplexOff || ch.txHz == null ? '' : (ch.txHz / 1e6).toFixed(5);
     const flags = ch.empty ? '' :
       `<div class="ch-flags">
         <label class="inline"><input type="checkbox" data-n="${ch.number}" data-f="bcl" ${ch.bcl ? 'checked' : ''}> BCL</label>
